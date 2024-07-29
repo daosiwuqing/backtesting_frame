@@ -5,8 +5,6 @@ import zipfile as zp
 import datetime as dt
 import io, csv
 
-import sys
-sys.path.append("D:\\LearningAndWorking\\VS\\py\\other\\py_packages")
 from package1 import Cal_index1 as ci
 
 

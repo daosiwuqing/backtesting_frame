@@ -1,7 +1,7 @@
-﻿import pandas as pd
+﻿# 该项目的作用：根据一些资产配置模型确定配置权重
+import pandas as pd
 import numpy as np
 from scipy.optimize import minimize
-
 
 
 

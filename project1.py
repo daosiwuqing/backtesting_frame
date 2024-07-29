@@ -1,11 +1,9 @@
-﻿# 该项目的作用：构建单品种指数（当日判定是否展期，并在收盘时展期）
+﻿# 该项目的作用：构建南华单品种指数（当日判定是否展期，并在收盘时展期）
 import threading as th
 import pandas as pd
 import zipfile as zp
 import io, csv
 
-import sys
-sys.path.append("D:\\LearningAndWorking\\VS\\py\\other\\py_packages")
 from package1 import Cal_index1 as ci
 
 

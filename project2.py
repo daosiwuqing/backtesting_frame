@@ -4,8 +4,6 @@ import pandas as pd
 import zipfile as zp
 import io, csv
 
-import sys
-sys.path.append("D:\\LearningAndWorking\\VS\\py\\other\\py_packages")
 from package1 import Cal_index1 as ci
 
 
