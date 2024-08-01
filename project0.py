@@ -1,6 +1,7 @@
 ﻿# 该项目的作用：搭建一个通用的行情回测框架
 import pandas as pd
 import numpy as np
+import re, os, csv
 
 from package1 import Cal_index1 as ci
 
@@ -25,7 +26,7 @@ def rsi(delta):
     rsi = round(100 - (100 / (1 + rs)))
 
     return rsi
-def function1_1(df1, period1):
+def function1_1_1(df1, period1):
     df2 = pd.DataFrame(columns=["code", "date", "open", "high", "low", "close", "settle", "volume", "turnover", "open_interest", "rsi", "index"])
     for code1 in set(df1.code):
         df3 = df1[df1.code==code1].sort_values(by="date")
@@ -41,6 +42,41 @@ def function1_1(df1, period1):
     df2["index"].loc[df2["index"].isnull()==True] = 0 # 0表示不行动
 
     return df2
+
+# 1.1.2、找出历史行情的高低点
+def market_data_filter(df1, period1): # 找出历史行情的高低点，df1的列名：date、price，period1为时间窗口的长度
+    df1 = df1.sort_values(by="date")
+    df1["result"] = df1["price"].rolling(window=period1, center=True).mean()
+    df1 = df1.dropna(axis=0, subset=["result"])
+    df1["high"] = df1["result"].rolling(window=period1, center=True).apply(lambda x: x.argmax() == period1//2, raw=False) # argmax()是一个内置函数，返回数组或一维数组元素中最大值对应的索引。
+    df1["low"] = df1["result"].rolling(window=period1, center=True).apply(lambda x: x.argmin() == period1//2, raw=False)
+    df1 = df1.dropna(axis=0, subset=["high", "low"])
+    
+    df2_1 = df1[["date", "result"]]
+    df3 = df1[df1.high==1][["date", "result"]]
+    df3.columns = ["date", "high"]
+    df4 = df1[df1.low==1][["date", "result"]]
+    df4.columns = ["date", "low"]
+    point_num = df3.shape[0] + df4.shape[0]
+
+    df2_2 = pd.merge(df2_1, df3, on="date", how="outer")
+    df2_3 = pd.merge(df2_2, df4, on="date", how="outer")
+
+    return [df2_3, point_num]
+def function1_1_2(df1, start1, end1, step1): # 通过该函数找出market_data_filter()参数中合适的period1
+    list1 = range(start1, end1, step1)
+    list2 = []
+    for i in list1:
+        list3 = market_data_filter(df1, i)
+        list2.append(list3[1])
+
+    import matplotlib.pyplot as plt
+    fig, ax1 = plt.subplots(figsize=(13, 7))
+    ax1.plot(list1, list2, color=(75/255, 115/255, 165/255))
+    plt.show()
+
+    return True
+
 
 # 1.2、整理好回测所用数据
 # 1.2.1、以期货市场为例，用主力合约作为回测所用数据
@@ -67,6 +103,7 @@ def function1_2(df1):
         df2 = pd.concat([df2,df4], axis=0)
 
     return df2
+
 
 # 1.3、计算盈亏
 # 1.3.1、以期货市场为例
@@ -192,11 +229,217 @@ def function1_3_1(df1, path1): # df1是一个只有日期(date)、行情(price)�
 
 
 
-# 2、回测单品种跨月套利策略
+# 2、回测横截面策略
 
 
 
-# 3、回测多品种套利策略
+# 3、回测单品种跨月套利策略
+
+
+
+# 4、回测多品种套利策略
+# 4.1、以期货与期权之间的套利为例
+def process_data1(code, date): # code格式如"TA"，date格式如"2020-01-01"，把满足流动性要求的期货和期权挑选出来
+    df1_1 = pd.read_csv("D:\\LearningAndWorking\\VS\\data\\期货合约日级数据（2023）\\" + code + ".csv")
+    df1_1 = df1_1[df1_1.date >= date]
+    df2_1 = pd.read_csv("D:\\LearningAndWorking\\VS\\data\\期权合约日级数据（2023）\\" + code + "_option.csv")
+    # 股指期货和股指期货期权的代码不同，可以采用以下方式处理
+    # df2_1 = pd.read_csv("D:\\LearningAndWorking\\VS\\data\\期权合约日级数据（2023）\\IO_option.csv")
+    # df2_1.code = df2_1.code.str.replace("^IO", "IF", regex=True)
+    df2_1 = df2_1[(df2_1.date >= date) & (df2_1.volume > 0)]
+
+    df1_3 = pd.DataFrame(columns=["code", "date", "open", "high", "low", "close", "settle", "volume", "turnover", "open_interest"])
+    for date1 in sorted(set(df1_1.date)):
+        df1_2 = df1_1[df1_1.date==date1].sort_values(by="open_interest", ascending=False)
+        df1_3 = pd.concat([df1_3, df1_2.iloc[0:2,:]])
+
+    df2_4 = pd.DataFrame(columns=["code", "date", "open", "high", "low", "close", "settle", "volume", "turnover", "open_interest"])
+    for date1 in sorted(set(df2_1.date)):
+        df2_2 = df2_1[df2_1.date==date1]
+        for code1 in list(df1_3[df1_3.date==date1].code):
+            df2_3 = df2_2.query("code.str.contains('^" + code1 + "', regex=True)", engine="python")
+            df2_4 = pd.concat([df2_4, df2_3])
+    
+    df_C = df2_4.query("code.str.contains('[0-9][C][0-9]', regex=True)", engine="python")
+    df_P = df2_4.query("code.str.contains('[0-9][P][0-9]', regex=True)", engine="python")
+
+    return df1_3, df_C, df_P
+def process_data2(df1_1, df2_1, df3_1): # code格式如"TA"，在process_data1()的基础上把满足无风险套利策略的期货和期权挑选出来，df1_1对应df1_3，df2_1对应df_C，df3_1对应df_P
+    df5_1 = pd.DataFrame(columns=["date", "future_contract", "future_price", "K", "C_option_contract", "C_option_price", "volume1", "P_option_contract", "P_option_price", "volume2", "spread"])
+    for date1 in sorted(set(df2_1.date)):
+        df1_2 = df1_1[df1_1.date==date1].sort_values(by="volume", ascending=False)
+        df2_2 = df2_1[df2_1.date==date1].sort_values(by="volume", ascending=False)
+        df2_2 = df2_2.iloc[0:round(df2_2.shape[0]/3),:] # 取成交量前1/3的买权合约
+        df3_2 = df3_1[df3_1.date==date1].sort_values(by="volume", ascending=False)
+        S_minus_K = []
+        for code1_1 in df2_2.code:
+            code1_2 = re.findall(pattern="^[A-Z]{1,2}[0-9]{3,4}", string=code1_1)[0]
+            direction1 = re.findall(pattern="([0-9])([C|P])([0-9])", string=code1_1)[0][1]
+            K = re.findall(pattern="[0-9]+$", string=code1_1)[0]
+            S = float(df1_2[df1_2.code==code1_2].iloc[0, 5])
+            if direction1=="C":
+                option_close1 = float(df2_2[df2_2.code==code1_1].iloc[0, 5])
+                volume1 = float(df2_2[df2_2.code==code1_1].iloc[0, 7])
+                code1_3 = code1_2 + "P" + K
+
+                try:
+                    option_close2 = float(df3_2[df3_2.code==code1_3].iloc[0, 5])
+                    volume2 = float(df3_2[df3_2.code==code1_3].iloc[0, 7])
+                except:
+                    break
+                
+                spread1 = (option_close1-option_close2) - (S-float(K)) # 计算(C-P)-(S-K)
+                if (spread1<0) and (code1_3 in list(df3_2.iloc[0:round(df3_2.shape[0]/3),:].code)): # 判断与符合要求的买权合约对应的卖权合约成交量是否在前1/3
+                    S_minus_K.append([date1, code1_2, S, float(K), code1_1, option_close1, volume1, code1_3, option_close2, volume2, spread1])
+        
+        df4_1 = pd.DataFrame(S_minus_K, columns=["date", "future_contract", "future_price", "K", "C_option_contract", "C_option_price", "volume1", "P_option_contract", "P_option_price", "volume2", "spread"])
+        df4_1 = df4_1.sort_values(by="spread", ascending=True)
+        if df4_1.shape[0] > 0:
+            df5_1 = pd.concat([df5_1, df4_1])
+
+    return df5_1
+def function4_1(): # 开始进行行情回测
+    # 资金利用效率：((C_option_price-P_option_price) - (future_price-K)) / (future_price*scale*leverage + C_option_price - P_option_price)
+    code1 = "TA"
+    path1 = "D:\\LearningAndWorking\\VSCode\\python\\project3\\result.csv"
+
+    df1 = pd.read_csv("C:\\Users\\29433\\Desktop\\result.csv")
+    df1_future = pd.read_csv("D:\\LearningAndWorking\\VS\\data\\期货合约日级数据（2023）\\" + code1 + ".csv")
+    df1_option = pd.read_csv("D:\\LearningAndWorking\\VS\\data\\期权合约日级数据（2023）\\" + code1 + "_option.csv")
+    date_list1 = sorted(set(df1_option.date))
+    date_list2 = sorted(set(df1.date))
+
+    with open(path1, "w", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerows([["date", "state", "future", "future_price", "C_option", "C_option_price", "P_option", "P_option_price", "spread", "net_value"]])
+    df2 = pd.DataFrame(columns=["date", "state", "future", "future_price", "C_option", "C_option_price", "P_option", "P_option_price", "spread", "net_value"])
+    for date1 in date_list1:
+        df2_future = df1_future[df1_future.date==date1]
+        df2_option = df1_option[df1_option.date==date1]
+        if date1 == date_list2[0]:
+            state = 1
+            future = df1[df1.date==date1].iloc[0, 1]
+            future_price = df2_future[df2_future.code==future].iloc[0, 5]
+            C_option = df1[df1.date==date1].iloc[0, 4]
+            C_option_price = df2_option[df2_option.code==C_option].iloc[0, 5]
+            P_option = df1[df1.date==date1].iloc[0, 7]
+            P_option_price = df2_option[df2_option.code==P_option].iloc[0, 5]
+            spread1 = df1.iloc[0, 10]
+            net_value = 1000
+            
+            list1 = [date1, state, future, future_price, C_option, C_option_price, P_option, P_option_price, spread1, net_value]
+            with open(path1, "a", newline="") as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerows([list1])
+
+            df3 = pd.DataFrame([list1])
+            df2 = pd.concat([df2, df3])
+
+        elif date1 > date_list2[0]:
+            pre_state = df2.iloc[-1, 1]
+            pre_future = df2.iloc[-1, 2]
+            pre_future_price = df2.iloc[-1, 3]
+            pre_C_option = df2.iloc[-1, 4]
+            pre_C_option_price = df2.iloc[-1, 5]
+            pre_P_option = df2.iloc[-1, 6]
+            pre_P_option_price = df2.iloc[-1, 7]
+            pre_spread = df2.iloc[-1, 8]
+            pre_net_value = df2.iloc[-1, 9]
+            if pre_state == 1: # 已有持仓
+                future_price = df2_future[df2_future.code==pre_future].iloc[0, 5]
+                C_option_price = df2_option[df2_option.code==pre_C_option].iloc[0, 5]
+                P_option_price = df2_option[df2_option.code==pre_P_option].iloc[0, 5]
+                K = float(re.findall(pattern="[0-9]+$", string=pre_C_option)[0])
+                spread1 = (C_option_price-P_option_price) - (future_price-K) # 计算(C-P)-(S-K)
+                net_value = (((pre_future_price-future_price)+(pre_P_option_price-P_option_price)+(C_option_price-pre_C_option_price)) / (pre_future_price-pre_P_option_price+pre_C_option_price) + 1) * pre_net_value
+                if date1 in date_list2: # 有需要判断的建仓信号出现
+                    state = 1
+                    spread2 = df1[df1.date==date1].iloc[0, 10]
+                    if (spread1>spread2) or (ci.cal_date_spread(pre_future, date1)[2] <= 30): # 如果新的建仓信号利润更大或者已有持仓已临近到期，就平旧仓建新仓
+                        list1 = [date1, state, future, future_price, C_option, C_option_price, P_option, P_option_price, spread1, net_value]
+                        
+                        future = df1[df1.date==date1].iloc[0, 1]
+                        future_price = df2_future[df2_future.code==future].iloc[0, 5]
+                        C_option = df1[df1.date==date1].iloc[0, 4]
+                        C_option_price = df2_option[df2_option.code==C_option].iloc[0, 5]
+                        P_option = df1[df1.date==date1].iloc[0, 7]
+                        P_option_price = df2_option[df2_option.code==P_option].iloc[0, 5]
+
+                        list2 = [date1, state, future, future_price, C_option, C_option_price, P_option, P_option_price, spread2, net_value]
+                        with open(path1, "a", newline="") as csvfile:
+                            writer = csv.writer(csvfile)
+                            writer.writerows([list1, list2])
+
+                        df3 = pd.DataFrame([list1, list2])
+                        df2 = pd.concat([df2, df3])
+
+                    else:
+                        list1 = [date1, state, pre_future, future_price, pre_C_option, C_option_price, pre_P_option, P_option_price, spread1, net_value]
+                        with open(path1, "a", newline="") as csvfile:
+                            writer = csv.writer(csvfile)
+                            writer.writerows([list1])
+
+                        df3 = pd.DataFrame([list1])
+                        df2 = pd.concat([df2, df3])
+
+                else:
+                    if (spread1>=0) or (ci.cal_date_spread(pre_future, date1)[2] <=30): # 如果利润已经取得或者已有持仓已临近到期，就平仓
+                        state = 0
+
+                        list1 = [date1, state, pre_future, future_price, pre_C_option, C_option_price, pre_P_option, P_option_price, spread1, net_value]
+                        with open(path1, "a", newline="") as csvfile:
+                            writer = csv.writer(csvfile)
+                            writer.writerows([list1])
+
+                        df3 = pd.DataFrame([list1])
+                        df2 = pd.concat([df2, df3])
+
+                    else:
+                        list1 = [date1, pre_state, pre_future, future_price, pre_C_option, C_option_price, pre_P_option, P_option_price, spread1, net_value]
+                        with open(path1, "a", newline="") as csvfile:
+                            writer = csv.writer(csvfile)
+                            writer.writerows([list1])
+                        
+                        df3 = pd.DataFrame([list1])
+                        df2 = pd.concat([df2, df3])
+
+            else:
+                if date1 in date_list2: # 有需要判断的建仓信号出现
+                    state = 1
+                    future = df1[df1.date==date1].iloc[0, 1]
+                    future_price = df2_future[df2_future.code==future].iloc[0, 5]
+                    C_option = df1[df1.date==date1].iloc[0, 4]
+                    C_option_price = df2_option[df2_option.code==C_option].iloc[0, 5]
+                    P_option = df1[df1.date==date1].iloc[0, 7]
+                    P_option_price = df2_option[df2_option.code==P_option].iloc[0, 5]
+                    spread1 = df1[df1.date==date1].iloc[0, 10]
+
+                    list1 = [date1, state, future, future_price, C_option, C_option_price, P_option, P_option_price, spread1, net_value]
+                    with open(path1, "a", newline="") as csvfile:
+                        writer = csv.writer(csvfile)
+                        writer.writerows([list1])
+
+                    df3 = pd.DataFrame([list1])
+                    df2 = pd.concat([df2, df3])
+                
+                else:
+                    state = 0
+                    future = ""
+                    future_price = 0
+                    C_option = ""
+                    C_option_price = 0
+                    P_option = ""
+                    P_option_price = 0
+                    spread1 = 0
+                    net_value = df2.iloc[-1, 9]
+
+                    list1 = [date1, state, future, future_price, C_option, C_option_price, P_option, P_option_price, spread1, net_value]
+                    with open(path1, "a", newline="") as csvfile:
+                        writer = csv.writer(csvfile)
+                        writer.writerows([list1])
+
+                    df3 = pd.DataFrame([list1])
+                    df2 = pd.concat([df2, df3])
 
 
 
