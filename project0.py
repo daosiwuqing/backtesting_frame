@@ -9,7 +9,7 @@ from package1 import Cal_index1 as ci
 
 # 1、回测单品种趋势或震荡策略（基于行情数据；基于基本面数据）
 # 1.1、计算进出场指标
-# 1.1.1、以期货市场为例，基于rsi计算进出场指标
+# 1.1.1、以具体期货合约为例，基于rsi计算进出场指标
 def rsi(delta):
     # 分类上涨和下跌
     up = delta.copy()
@@ -43,7 +43,7 @@ def function1_1_1(df1, period1):
 
     return df2
 
-# 1.1.2、找出历史行情的高低点
+# 1.1.2、以指数为例，找出历史行情的高低点
 def market_data_filter(df1, period1): # 找出历史行情的高低点，df1的列名：date、price，period1为时间窗口的长度
     df1 = df1.sort_values(by="date")
     df1["result"] = df1["price"].rolling(window=period1, center=True).mean()
@@ -79,8 +79,8 @@ def function1_1_2(df1, start1, end1, step1): # 通过该函数找出market_data_
 
 
 # 1.2、整理好回测所用数据
-# 1.2.1、以期货市场为例，用主力合约作为回测所用数据
-def function1_2(df1):
+# 1.2.1、以具体期货合约为例，用主力合约作为回测所用数据
+def function1_2_1(df1):
     df2 = pd.DataFrame(columns=["code", "date", "open", "high", "low", "close", "settle", "volume", "turnover", "open_interest", "rsi", "index"])
     for date1 in sorted(set(df1.date)):
         df3 = df1[df1.date==date1].sort_values(by="volume", ascending=False)
@@ -106,8 +106,8 @@ def function1_2(df1):
 
 
 # 1.3、计算盈亏
-# 1.3.1、以期货市场为例
-def function1_3(df1, account1, path1, scale1): # df1是行情数据及进出场指标，account1是初始账户权益，path1是账户数据的路径，scale1是合约规模
+# 1.3.1、以具体期货合约为例
+def function1_3_1(df1, account1, path1, scale1): # df1是行情数据及进出场指标，account1是初始账户权益，path1是账户数据的路径，scale1是合约规模
     # 初始化账户信息
     contract1 = ""
     price1 = 0
@@ -199,9 +199,10 @@ def function1_3(df1, account1, path1, scale1): # df1是行情数据及进出场�
                 df3 = pd.DataFrame([[date1, contract1, price1, open_interest1, equity1]], columns=["date", "contract", "price", "open_interest", "equity"])
                 df3.to_csv(path1, mode="a", index=False, header=False)
 
-    return 0
+    return True
 
-def function1_3_1(df1, path1): # df1是一个只有日期(date)、行情(price)和进出指标(index)三列的dataframe数据，代码逻辑比function1_3更简单，是用于对指数进行行情回测
+# 1.3.2、以指数为例
+def function1_3_2(df1, path1): # df1是一个只有日期(date)、行情(price)和进出指标(index)三列的dataframe数据，代码逻辑比function1_3_1更简单，是用于对指数进行行情回测
     # 初始化账户信息
     date1 = sorted(set(df1.date))[0]
     price1 = df1[df1.date==date1].iloc[0, 1]
@@ -225,11 +226,94 @@ def function1_3_1(df1, path1): # df1是一个只有日期(date)、行情(price)�
         df3 = pd.DataFrame([[date1, price1, equity1]], columns=["date", "price", "equity"])
         df3.to_csv(path1, mode="a", index=False, header=False)
 
-    return 0
+    return True
 
 
 
 # 2、回测横截面策略
+# 2.1、计算进出场指标
+# 2.1.1、以期货市场多品种会员持仓数据为例，基于(long-short)/open_interest计算进出场指标
+from scipy.stats import percentileofscore
+def function2_1_1(df1, period1): # df1是一个只有日期(date)、品种(code)、多方持仓(long)、空方持仓(short)、品种持仓(open_interest)和指标(rate)的dataframe数据
+    df3 = pd.DataFrame()
+    for code1 in sorted(set(df1.code)):
+        df2 = df1[df1.code==code1]
+        df2["mean_deviation"] = df2["rate"].rolling(window=period1).apply(lambda x: (x[-1]-np.mean(x))/np.mean(x), raw=True)
+        df2["standard_factor"] = df2["rate"].rolling(window=period1).apply(lambda x: (x[-1]-np.mean(x))/np.std(x), raw=True)
+        df2["quantile_value"] = df2["rate"].rolling(window=period1).apply(lambda x: percentileofscore(x, x[-1]), raw=True)
+
+        df3 = pd.concat([df3, df2])
+
+    return df3
+
+
+# 2.2、整理好回测所用数据
+# 2.2.1、以具体期货合约为例
+def function2_2_1(df1): # df1是一个只有日期(date)、品种(code)和指标(index)的dataframe数据
+    df4 = pd.DataFrame()
+    for date1 in sorted(set(df1.date)):
+        df2 = df1[df1.date==date1].sort_values(by="quantile_value")
+        df2 = df2.dropna(axis=0, subset=["quantile_value"])
+        df3 = df2.tail(1) # 用南华单个品种指数作为回测所用数据
+        # df3 = df2.tail(round(df2.shape[0]/5)) # 用南华多个品种指数作为回测所用数据
+        df3 = df3[["date", "code", "quantile_value"]]
+        df4 = pd.concat([df4, df3])
+
+    return df4
+
+
+# 2.3、计算盈亏
+# 2.3.1、单个品种持仓计算盈亏
+def function2_3_1(df1): # df1是一个只有日期(date)、品种(code)和指标(index)的dataframe数据
+    df2 = pd.read_excel("D:\\LearningAndWorking\\VSCode\\data\\index_data_commodity.xlsx", sheet_name="variety_open")
+    s0 = sorted(set(df1.date))
+    len1 = len(s0)
+    s1 = s0[0:len1-2]
+    s2 = s0[1:len1-1]
+    s3 = s0[2:len1]
+    list1 = []
+    for date1,date2,date3 in zip(s1,s2,s3):
+        code1 = df1[df1.date==date1].iloc[0,1]
+        if code1 == "PM":
+            continue
+        elif date1=='2016-06-22' or date2=='2016-06-22' or date3=='2016-06-22':
+            continue
+        else:
+            open1 = float(df2[df2.DATE==date2][code1])
+            open2 = float(df2[df2.DATE==date3][code1])
+            return1 = open2/open1 - 1
+            list1.append([date3, code1, return1])
+    df3 = pd.DataFrame(list1, columns=["date", "code", "return"])
+
+    return df3
+
+# 2.3.2、多个品种持仓计算盈亏
+def function2_3_2(df1): # df1是一个只有日期(date)、品种(code)和指标(index)的dataframe数据
+    df2 = pd.read_excel("D:\\LearningAndWorking\\VSCode\\data\\index_data_commodity.xlsx", sheet_name="variety_open")
+    s0 = sorted(set(df1.date))
+    len1 = len(s0)
+    s1 = s0[0:len1-2]
+    s2 = s0[1:len1-1]
+    s3 = s0[2:len1]
+    list1 = []
+    for date1,date2,date3 in zip(s1,s2,s3):
+        df3 = df1[df1.date==date1]
+        list2 = []
+        if "PM" in list(df3.code):
+            continue
+        elif date1=="2016-06-22" or date2=="2016-06-22" or date3=="2016-06-22":
+            continue
+        else:
+            for code1 in df3.code:
+                open1 = float(df2[df2.DATE==date2][code1])
+                open2 = float(df2[df2.DATE==date3][code1])
+                return1 = open2/open1 - 1
+                list2.append(return1)
+        return2 = sum(list2)/len(list2)
+        list1.append([date3, return2])
+    df4 = pd.DataFrame(list1, columns=["date", "return"])
+
+    return df4
 
 
 
@@ -238,8 +322,12 @@ def function1_3_1(df1, path1): # df1是一个只有日期(date)、行情(price)�
 
 
 # 4、回测多品种套利策略
-# 4.1、以期货与期权之间的套利为例
-def process_data1(code, date): # code格式如"TA"，date格式如"2020-01-01"，把满足流动性要求的期货和期权挑选出来
+# 4.1、计算进出场指标
+
+
+# 4.2、整理好回测所用数据
+# 4.2.1、以期货与期权之间的套利为例
+def function4_2_1_1(code, date): # code格式如"TA"，date格式如"2020-01-01"，把满足流动性要求的期货和期权挑选出来
     df1_1 = pd.read_csv("D:\\LearningAndWorking\\VS\\data\\期货合约日级数据（2023）\\" + code + ".csv")
     df1_1 = df1_1[df1_1.date >= date]
     df2_1 = pd.read_csv("D:\\LearningAndWorking\\VS\\data\\期权合约日级数据（2023）\\" + code + "_option.csv")
@@ -264,7 +352,7 @@ def process_data1(code, date): # code格式如"TA"，date格式如"2020-01-01"�
     df_P = df2_4.query("code.str.contains('[0-9][P][0-9]', regex=True)", engine="python")
 
     return df1_3, df_C, df_P
-def process_data2(df1_1, df2_1, df3_1): # code格式如"TA"，在process_data1()的基础上把满足无风险套利策略的期货和期权挑选出来，df1_1对应df1_3，df2_1对应df_C，df3_1对应df_P
+def function4_2_1_2(df1_1, df2_1, df3_1): # code格式如"TA"，在process_data1()的基础上把满足无风险套利策略的期货和期权挑选出来，df1_1对应df1_3，df2_1对应df_C，df3_1对应df_P
     df5_1 = pd.DataFrame(columns=["date", "future_contract", "future_price", "K", "C_option_contract", "C_option_price", "volume1", "P_option_contract", "P_option_price", "volume2", "spread"])
     for date1 in sorted(set(df2_1.date)):
         df1_2 = df1_1[df1_1.date==date1].sort_values(by="volume", ascending=False)
@@ -298,7 +386,11 @@ def process_data2(df1_1, df2_1, df3_1): # code格式如"TA"，在process_data1()
             df5_1 = pd.concat([df5_1, df4_1])
 
     return df5_1
-def function4_1(): # 开始进行行情回测
+
+
+# 4.3、计算盈亏
+# 4.3.1、以期货与期权之间的套利为例
+def function4_3_1():
     # 资金利用效率：((C_option_price-P_option_price) - (future_price-K)) / (future_price*scale*leverage + C_option_price - P_option_price)
     code1 = "TA"
     path1 = "D:\\LearningAndWorking\\VSCode\\python\\project3\\result.csv"
@@ -440,6 +532,8 @@ def function4_1(): # 开始进行行情回测
 
                     df3 = pd.DataFrame([list1])
                     df2 = pd.concat([df2, df3])
+
+    return True
 
 
 
