@@ -77,6 +77,20 @@ def function1_1_2(df1, start1, end1, step1): # 通过该函数找出market_data_
 
     return True
 
+# 1.1.3、以具体期货合约为例，基于布林带计算进出场指标
+def boll_band(df1, window1):
+    n = df1.shape[0]
+    ma = np.mean(df1.price)
+    sd = np.sqrt(np.sum((df1.price-ma)**2) / n)
+    upper_band = ma + 2*sd
+    lower_band = ma - 2*sd
+
+    return upper_band, lower_band
+def function1_1_3(df1, window1):
+    df1[["upper_band", "lower_band"]] = [boll_band(df, window1) for df in df1.rolling(window1)]
+
+    return df1
+
 
 # 1.2、整理好回测所用数据
 # 1.2.1、以具体期货合约为例，用主力合约作为回测所用数据
